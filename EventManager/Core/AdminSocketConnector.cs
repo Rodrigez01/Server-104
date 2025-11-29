@@ -128,8 +128,11 @@ namespace Meridian59EventManager.Core
                 OnMessageReceived($"Starting {className}: {command}");
                 string response = await SendCommandAsync(command);
 
-                // Check for success (looking for "Success" in response)
-                bool success = response.Contains("Success") && !response.Contains("Failure");
+                // Check for success - absence of error indicators means success
+                bool success = !response.Contains("Error") &&
+                              !response.Contains("Failure") &&
+                              !response.Contains("Failed") &&
+                              !response.Contains("Invalid");
 
                 if (success)
                 {
@@ -176,27 +179,26 @@ namespace Meridian59EventManager.Core
                 string className = evt.GetBlakodClassName();
                 int stoppedCount = 0;
 
-                // Use stored object IDs if available, otherwise query for instances
+                // Always query for current instances from server to get the latest object IDs
                 List<int> objectIdsToStop = new List<int>();
 
-                if (evt.ServerObjectIds.Count > 0)
-                {
-                    objectIdsToStop.AddRange(evt.ServerObjectIds);
-                    OnMessageReceived($"Using stored object IDs: {string.Join(", ", objectIdsToStop)}");
-                }
-                else
-                {
-                    // Query for instances
-                    string showCommand = $"show instances {className}";
-                    OnMessageReceived($"Finding {className} instances: {showCommand}");
-                    string showResponse = await SendCommandAsync(showCommand);
+                string showCommand = $"show instances {className}";
+                OnMessageReceived($"Finding current {className} instances: {showCommand}");
+                string showResponse = await SendCommandAsync(showCommand);
 
-                    var matches = System.Text.RegularExpressions.Regex.Matches(showResponse, @"OBJECT\s+(\d+)");
-                    foreach (System.Text.RegularExpressions.Match match in matches)
-                    {
-                        objectIdsToStop.Add(int.Parse(match.Groups[1].Value));
-                    }
+                var matches = System.Text.RegularExpressions.Regex.Matches(showResponse, @"OBJECT\s+(\d+)");
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    objectIdsToStop.Add(int.Parse(match.Groups[1].Value));
                 }
+
+                if (objectIdsToStop.Count == 0)
+                {
+                    OnMessageReceived($"No active {className} instances found on server");
+                    return false;
+                }
+
+                OnMessageReceived($"Found {objectIdsToStop.Count} {className} instance(s): {string.Join(", ", objectIdsToStop)}");
 
                 // Stop all object instances using NotifyEngineEndEvent
                 foreach (int objectId in objectIdsToStop)

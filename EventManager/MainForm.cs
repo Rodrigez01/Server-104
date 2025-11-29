@@ -24,8 +24,8 @@ namespace Meridian59EventManager
         private Button btnClearCompleted;
         private RichTextBox txtLog;
         private Label lblStatus;
-        private Button btnRefreshStatus;
-        private Button btnCheckActiveEvents;
+        private Label lblCurrentTime;
+        private System.Windows.Forms.Timer clockTimer;
         private GroupBox grpConnection;
         private GroupBox grpEvents;
         private GroupBox grpLog;
@@ -111,27 +111,27 @@ namespace Meridian59EventManager
                 ForeColor = Color.Red
             };
 
-            btnRefreshStatus = new Button
+            lblCurrentTime = new Label
             {
-                Text = "Refresh Status",
-                Location = new Point(610, 20),
-                Size = new Size(100, 25),
-                Enabled = false
+                Text = DateTime.Now.ToString("HH:mm:ss"),
+                Location = new Point(720, 25),
+                Size = new Size(120, 20),
+                Font = new Font("Consolas", 10, FontStyle.Bold),
+                ForeColor = Color.Blue,
+                TextAlign = ContentAlignment.MiddleRight
             };
-            btnRefreshStatus.Click += BtnRefreshStatus_Click;
 
-            btnCheckActiveEvents = new Button
+            // Clock timer - updates every second
+            clockTimer = new System.Windows.Forms.Timer
             {
-                Text = "Refresh Active Events",
-                Location = new Point(720, 20),
-                Size = new Size(130, 25),
-                Enabled = false
+                Interval = 1000
             };
-            btnCheckActiveEvents.Click += BtnCheckActiveEvents_Click;
+            clockTimer.Tick += ClockTimer_Tick;
+            clockTimer.Start();
 
             grpConnection.Controls.AddRange(new Control[]
             {
-                lblHost, txtHost, lblPort, numPort, btnConnect, btnDisconnect, lblStatus, btnRefreshStatus, btnCheckActiveEvents
+                lblHost, txtHost, lblPort, numPort, btnConnect, btnDisconnect, lblStatus, lblCurrentTime
             });
 
             // Events Group
@@ -336,21 +336,6 @@ namespace Meridian59EventManager
 
             UpdateConnectionStatus(false);
             Log("Disconnected from server");
-        }
-
-        private async void BtnRefreshStatus_Click(object? sender, EventArgs e)
-        {
-            if (_connector == null) return;
-
-            try
-            {
-                string status = await _connector.GetServerStatusAsync();
-                Log("Server Status:\n" + status);
-            }
-            catch (Exception ex)
-            {
-                Log($"Failed to get status: {ex.Message}");
-            }
         }
 
         private async void BtnCheckActiveEvents_Click(object? sender, EventArgs e)
@@ -596,8 +581,6 @@ namespace Meridian59EventManager
 
             btnConnect.Enabled = !connected;
             btnDisconnect.Enabled = connected;
-            btnRefreshStatus.Enabled = connected;
-            btnCheckActiveEvents.Enabled = connected;
             btnRefreshActiveEvents.Enabled = connected;
             btnTrackInstances.Enabled = connected;
             btnStopActive.Enabled = connected;
@@ -686,8 +669,15 @@ namespace Meridian59EventManager
             txtLog.ScrollToCaret();
         }
 
+        private void ClockTimer_Tick(object? sender, EventArgs e)
+        {
+            lblCurrentTime.Text = DateTime.Now.ToString("HH:mm:ss");
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            clockTimer?.Stop();
+            clockTimer?.Dispose();
             _scheduler?.Stop();
             _scheduler?.Dispose();
             _connector?.Dispose();

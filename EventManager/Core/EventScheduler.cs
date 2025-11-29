@@ -43,8 +43,9 @@ namespace Meridian59EventManager.Core
             if (!_isRunning)
             {
                 _isRunning = true;
-                _checkTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(30));
-                Log("Scheduler started");
+                // Check every minute
+                _checkTimer.Change(TimeSpan.Zero, TimeSpan.FromMinutes(1));
+                Log("Scheduler started - checking every minute");
             }
         }
 
@@ -96,19 +97,29 @@ namespace Meridian59EventManager.Core
             }
         }
 
-        private async void CheckScheduledEvents(object? state)
+        private void CheckScheduledEvents(object? state)
+        {
+            // Run async work in a separate task to avoid blocking the timer
+            _ = CheckScheduledEventsAsync();
+        }
+
+        private async Task CheckScheduledEventsAsync()
         {
             if (!_connector.IsConnected)
             {
                 return;
             }
 
+            // Get current time without seconds for comparison
+            DateTime now = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day,
+                                       DateTime.Now.Hour, DateTime.Now.Minute, 0);
+
             List<GameEvent> dueEvents;
             lock (_lock)
             {
                 dueEvents = _events
                     .Where(e => e.Status == EventStatus.Scheduled &&
-                               e.ScheduledStart <= DateTime.Now)
+                               TruncateToMinute(e.ScheduledStart) <= now)
                     .ToList();
             }
 
@@ -126,17 +137,8 @@ namespace Meridian59EventManager.Core
                         Log($"Event started successfully: {evt.Name}");
                         EventStarted?.Invoke(this, evt);
 
-                        // Check for auto-end
-                        if (evt.ScheduledEnd.HasValue)
-                        {
-                            ScheduleEventEnd(evt);
-                        }
-
-                        // Check for recurrence
-                        if (evt.IsRecurring && evt.RecurrenceInterval.HasValue)
-                        {
-                            ScheduleRecurringEvent(evt);
-                        }
+                        // Event will be automatically ended by the main scheduler loop
+                        // when ScheduledEnd time is reached
                     }
                     else
                     {
@@ -161,31 +163,13 @@ namespace Meridian59EventManager.Core
                 endingEvents = _events
                     .Where(e => e.Status == EventStatus.Active &&
                                e.ScheduledEnd.HasValue &&
-                               e.ScheduledEnd.Value <= DateTime.Now)
+                               TruncateToMinute(e.ScheduledEnd.Value) <= now)
                     .ToList();
             }
 
             foreach (var evt in endingEvents)
             {
                 await EndEventAsync(evt);
-            }
-        }
-
-        private void ScheduleEventEnd(GameEvent evt)
-        {
-            if (!evt.ScheduledEnd.HasValue)
-                return;
-
-            TimeSpan delay = evt.ScheduledEnd.Value - DateTime.Now;
-            if (delay.TotalMilliseconds > 0)
-            {
-                Task.Delay(delay).ContinueWith(async _ =>
-                {
-                    if (evt.Status == EventStatus.Active)
-                    {
-                        await EndEventAsync(evt);
-                    }
-                });
             }
         }
 
@@ -236,6 +220,12 @@ namespace Meridian59EventManager.Core
                     evt.ActualEnd = DateTime.Now;
                     Log($"Event ended: {evt.Name}");
                     EventEnded?.Invoke(this, evt);
+
+                    // Schedule next occurrence if this is a recurring event
+                    if (evt.IsRecurring && evt.RecurrenceInterval.HasValue)
+                    {
+                        ScheduleRecurringEvent(evt);
+                    }
                 }
                 else
                 {
@@ -289,7 +279,13 @@ namespace Meridian59EventManager.Core
 
         private void Log(string message)
         {
-            LogMessage?.Invoke(this, $"[{DateTime.Now:HH:mm:ss}] {message}");
+            LogMessage?.Invoke(this, $"[{DateTime.Now:HH:mm}] {message}");
+        }
+
+        private DateTime TruncateToMinute(DateTime dateTime)
+        {
+            return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day,
+                              dateTime.Hour, dateTime.Minute, 0);
         }
 
         public void Dispose()
